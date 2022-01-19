@@ -32,16 +32,21 @@ import (
 )
 
 // None is a placeholder node ID used when there is no leader.
+// None 表示当前没有leader节点
 const None uint64 = 0
 const noLimit = math.MaxUint64
 
 // Possible values for StateType.
+// 状态类型的可能值
 const (
-	StateFollower StateType = iota
-	StateCandidate
-	StateLeader
-	StatePreCandidate
-	numStates
+	StateFollower     StateType = iota //follower 状态
+	StateCandidate                     //candidate 状态
+	StateLeader                        // leader 状态
+	StatePreCandidate                  // prevote 状态, 预选状态
+	// 预选状态 主要用于优化 当网络分区的某个分区节点数没有达到群集的半数节点以上，则它们之间发起选举总是不成功的, 由此，当follower 要转换candidate时， 先转换成PreVote状态，此PreVote的节点会向群集中其它节点发起心跳请求，只有当得到半数以上的响应才真正转换为 candidate状态，才去发起新一轮选举; 否则不会发起选举;
+	// TODO: 当没有半数以上后的逻辑是怎么样的?
+
+	numStates //状态个数
 )
 
 type ReadOnlyOption int
@@ -49,29 +54,43 @@ type ReadOnlyOption int
 const (
 	// ReadOnlySafe guarantees the linearizability of the read only request by
 	// communicating with the quorum. It is the default and suggested option.
+	// 只读安全，此变量用于保证当半数以上通信响应成功后的 只读请求的线性化响应;
+	// 这是默认和建议选项
 	ReadOnlySafe ReadOnlyOption = iota
 	// ReadOnlyLeaseBased ensures linearizability of the read only request by
 	// relying on the leader lease. It can be affected by clock drift.
 	// If the clock drift is unbounded, leader might keep the lease longer than it
 	// should (clock can move backward/pause without any bound). ReadIndex is not safe
 	// in that case.
+
+	// 依赖leader续租模型下才保证只读请求的最终一致性
+	// 这个主要受时钟漂移的影响
+	// 如果时钟无限漂移，则leader状态会一直续租(时钟可以无限向后移动或暂停变化),
+	// 此时 ReadIndex 就不是安全的
+	// TODO 没有明白这个是什么意思?
+
 	ReadOnlyLeaseBased
 )
 
 // Possible values for CampaignType
+// 选举类型的可能值
 const (
 	// campaignPreElection represents the first phase of a normal election when
 	// Config.PreVote is true.
+	// 正常选举的第一阶段，此时 Config.PreVote设置为true
 	campaignPreElection CampaignType = "CampaignPreElection"
 	// campaignElection represents a normal (time-based) election (the second phase
 	// of the election when Config.PreVote is true).
+	// 正常选举的第二阶段状态(此时Config.PreVote 值还是true)
 	campaignElection CampaignType = "CampaignElection"
 	// campaignTransfer represents the type of leader transfer
+	// 表示候选节点转换为leader节点
 	campaignTransfer CampaignType = "CampaignTransfer"
 )
 
 // ErrProposalDropped is returned when the proposal is ignored by some cases,
 // so that the proposer can be notified and fail fast.
+// 当提议不满足某些情况，则会返回 ErrProposalDropped, 即提议被丢弃错误
 var ErrProposalDropped = errors.New("raft proposal dropped")
 
 // lockedRand is a small wrapper around rand.Rand to provide
@@ -113,14 +132,17 @@ func (st StateType) String() string {
 }
 
 // Config contains the parameters to start a raft.
+// 创建raft 实例时需要的参数会通过Config 实例传递进去
 type Config struct {
 	// ID is the identity of the local raft. ID cannot be 0.
+	// 当前节点ID
 	ID uint64
 
 	// peers contains the IDs of all nodes (including self) in the raft cluster. It
 	// should only be set when starting a new raft cluster. Restarting raft from
 	// previous configuration will panic if peers is set. peer is private and only
 	// used for testing right now.
+	//记录了集群中所有节点的ID
 	peers []uint64
 
 	// learners contains the IDs of all learner nodes (including self if the
